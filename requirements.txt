@@ -1,0 +1,6 @@
+python-dotenv
+pypdf
+camelot-py[base]
+pandas
+cryptography
+openpyxl
