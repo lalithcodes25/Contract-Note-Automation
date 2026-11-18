@@ -50,8 +50,8 @@ jobs:
               'EMAIL_USER': os.environ.get('EMAIL_USER'),
               'EMAIL_PASS': os.environ.get('EMAIL_PASS'),
               'IMAP_SERVER': os.environ.get('IMAP_SERVER'),
-              'DOWNLOAD_DIR': os.environ.get('DOWNLOAD_DIR') or 'downloads',
-              'EXCEL_PATH': os.environ.get('EXCEL_PATH') or 'trade_book.xlsx',
+              'DOWNLOAD_DIR': os.environ.get('DOWNLOAD_DIR'),
+              'EXCEL_PATH': os.environ.get('EXCEL_PATH'),
               'PDF_PASSWORD': os.environ.get('PDF_PASSWORD'),
               'DRIVE_FILE_ID': os.environ.get('DRIVE_FILE_ID')
           }
