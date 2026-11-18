@@ -31,21 +31,46 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      - name: Inject Google Drive Service Account Secret
+      - name: Create .env file and set environment variables securely
+        env:
+          EMAIL_USER: ${{ secrets.EMAIL_USER }}
+          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+          IMAP_SERVER: ${{ secrets.IMAP_SERVER }}
+          DOWNLOAD_DIR: ${{ secrets.DOWNLOAD_DIR }}
+          EXCEL_PATH: ${{ secrets.EXCEL_PATH }}
+          PDF_PASSWORD: ${{ secrets.PDF_PASSWORD }}
+          DRIVE_FILE_ID: ${{ secrets.DRIVE_FILE_ID }}
+          GDRIVE_SERVICE_ACCOUNT_JSON: ${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}
         run: |
-          cat << 'EOF' >> $GITHUB_ENV
-          GDRIVE_SERVICE_ACCOUNT_JSON=${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}
-          EOF
-
-      - name: Create .env file from GitHub Secrets
-        run: |
-          echo "EMAIL_USER=${{ secrets.EMAIL_USER }}" >> .env
-          echo "EMAIL_PASS=${{ secrets.EMAIL_PASS }}" >> .env
-          echo "IMAP_SERVER=${{ secrets.IMAP_SERVER }}" >> .env
-          echo "DOWNLOAD_DIR=${{ secrets.DOWNLOAD_DIR }}" >> .env
-          echo "EXCEL_PATH=${{ secrets.EXCEL_PATH }}" >> .env
-          echo "PDF_PASSWORD=${{ secrets.PDF_PASSWORD }}" >> .env
-          echo "DRIVE_FILE_ID=${{ secrets.DRIVE_FILE_ID }}" >> .env
+          python -c "
+          import os
+          env_vars = {
+              'EMAIL_USER': os.environ.get('EMAIL_USER'),
+              'EMAIL_PASS': os.environ.get('EMAIL_PASS'),
+              'IMAP_SERVER': os.environ.get('IMAP_SERVER'),
+              'DOWNLOAD_DIR': os.environ.get('DOWNLOAD_DIR'),
+              'EXCEL_PATH': os.environ.get('EXCEL_PATH'),
+              'PDF_PASSWORD': os.environ.get('PDF_PASSWORD'),
+              'DRIVE_FILE_ID': os.environ.get('DRIVE_FILE_ID'),
+              'GDRIVE_SERVICE_ACCOUNT_JSON': os.environ.get('GDRIVE_SERVICE_ACCOUNT_JSON')
+          }
+          
+          # Write to .env file for local/dotenv loading
+          with open('.env', 'w') as f:
+              for k, v in env_vars.items():
+                  if v:
+                      f.write(f'{k}={v}\n')
+          
+          # Also write cleanly to GITHUB_ENV so subsequent steps inherit them
+          with open(os.environ['GITHUB_ENV'], 'a') as f:
+              for k, v in env_vars.items():
+                  if v:
+                      # Handle multiline JSON securely via EOF delimiter
+                      if '\n' in v:
+                          f.write(f'{k}<<_EOF_\n{v}\n_EOF_\n')
+                      else:
+                          f.write(f'{k}={v}\n')
+          "
 
       - name: Run script
         run: python contract_note_automation.py
