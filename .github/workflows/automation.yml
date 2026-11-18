@@ -1,0 +1,35 @@
+name: Run Contract Note Automation Daily
+
+on:
+  schedule:
+    # Runs every day at 08:30 AM UTC
+    - cron: '30 8 * * *'
+  workflow_dispatch: # Allows manual testing from the Actions tab
+
+jobs:
+  run-script:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Create .env file from GitHub Secrets
+        run: |
+          echo "EMAIL_USER=${{ secrets.EMAIL_USER }}" >> .env
+          echo "EMAIL_PASS=${{ secrets.EMAIL_PASS }}" >> .env
+          echo "IMAP_SERVER=${{ secrets.IMAP_SERVER }}" >> .env
+          echo "DOWNLOAD_DIR=${{ secrets.DOWNLOAD_DIR }}" >> .env
+          echo "EXCEL_PATH=${{ secrets.EXCEL_PATH }}" >> .env
+          echo "PDF_PASSWORD=${{ secrets.PDF_PASSWORD }}" >> .env
+
+      - name: Run script
+        run: python contract_note_automation.py
