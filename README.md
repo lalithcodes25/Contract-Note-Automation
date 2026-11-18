@@ -213,3 +213,6 @@ python contract_note_automation.py
 # important notes while changing .env file and .gitignore
 .env file variable add/change make change in secrets in github repo to work properly
 add sufficient files in .gitignore too
+
+# Notes
+automation can break if gmail account passoword or auth settings is changed, then we need to create new app password and store it in .env file and also in github secrets

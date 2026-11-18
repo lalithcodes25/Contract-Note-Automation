@@ -13,9 +13,7 @@ from openpyxl.worksheet.table import Table, TableColumn, TableStyleInfo
 import pandas as pd
 from pypdf import PdfReader, PdfWriter
 from dotenv import load_dotenv
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
+from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 
@@ -31,16 +29,6 @@ DOWNLOAD_DIR = os.getenv("DOWNLOAD_DIR")
 PDF_PASSWORD = os.getenv("PDF_PASSWORD")
 EXCEL_PATH = os.getenv("EXCEL_PATH")
 STATUS_FILE = "run_status.json"
-
-excel_path = (
-    EXCEL_PATH
-    if EXCEL_PATH
-    else (
-        "/Users/lchatala/Desktop/Lalith"
-        " Chatala/Personal/Vscode/contract_note_automation/trade_book.xlsx"
-    )
-)
-
 
 def get_last_run_date():
   """Reads and returns the latest successfully processed date from JSON."""
@@ -350,14 +338,14 @@ def process_date(target_date, mail):
 
   # 3. Update Excel
   existing_trades_df, existing_charges_df = pd.DataFrame(), pd.DataFrame()
-  if os.path.exists(excel_path):
+  if os.path.exists(EXCEL_PATH):
     try:
-      existing_trades_df = pd.read_excel(excel_path, sheet_name="Trades")
+      existing_trades_df = pd.read_excel(EXCEL_PATH, sheet_name="Trades")
       existing_trades_df["date"] = existing_trades_df["date"].astype(str)
     except ValueError:
       pass
     try:
-      existing_charges_df = pd.read_excel(excel_path, sheet_name="Charges")
+      existing_charges_df = pd.read_excel(EXCEL_PATH, sheet_name="Charges")
       existing_charges_df["date"] = existing_charges_df["date"].astype(str)
     except ValueError:
       pass
@@ -369,12 +357,12 @@ def process_date(target_date, mail):
       [existing_charges_df, new_charges_df], ignore_index=True
   )
 
-  with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
+  with pd.ExcelWriter(EXCEL_PATH, engine="openpyxl") as writer:
     final_trades_df.to_excel(writer, sheet_name="Trades", index=False)
     final_charges_df.to_excel(writer, sheet_name="Charges", index=False)
 
   # Format Excel Tables
-  wb = openpyxl.load_workbook(excel_path)
+  wb = openpyxl.load_workbook(EXCEL_PATH)
   if "Trades" in wb.sheetnames:
     ws = wb["Trades"]
     if ws.max_row > 1:
@@ -410,7 +398,7 @@ def process_date(target_date, mail):
         cols.append(tc)
       tab.tableColumns = cols
       ws.add_table(tab)
-  wb.save(excel_path)
+  wb.save(EXCEL_PATH)
 
   update_status(target_date, "Success")
   print(f"Successfully processed and updated status for {target_date_str}")
@@ -443,70 +431,49 @@ def download_all_contract_notes(mail):
                 print(f"Downloaded: {filename}")
 
 def _get_drive_service():
-  """Internal helper to authenticate and build the Drive API service client."""
-  creds = None
-  if os.path.exists("token.json"):
-    creds = Credentials.from_authorized_user_file("token.json", SCOPES)
-
-  if not creds or not creds.valid:
-    if creds and creds.expired and creds.refresh_token:
-      creds.refresh(Request())
-    else:
-      if not os.path.exists("client_secret_google_drive_api.json"):
-        raise FileNotFoundError(
-            "client_secret_google_drive_api.json not found in directory. Please place it in your"
-            " project folder."
-        )
-      flow = InstalledAppFlow.from_client_secrets_file("client_secret_google_drive_api.json", SCOPES)
-      creds = flow.run_local_server(port=0)
-
-    with open("token.json", "w") as token:
-      token.write(creds.to_json())
+  """Authenticates with Google Drive using a Service Account (via env var or local file)."""
+  creds_json = os.getenv("GDRIVE_SERVICE_ACCOUNT_JSON")
+  
+  if creds_json:
+    # Used in GitHub Actions (reads from the injected secret)
+    creds_dict = json.loads(creds_json)
+    creds = service_account.Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+  else:
+    # Used when running locally on your laptop
+    creds_path = "service_account.json"
+    if not os.path.exists(creds_path):
+      raise FileNotFoundError(
+          f"'{creds_path}' not found locally and GDRIVE_SERVICE_ACCOUNT_JSON is not set."
+      )
+    creds = service_account.Credentials.from_service_account_file(creds_path, scopes=SCOPES)
 
   return build("drive", "v3", credentials=creds)
 
-
 def handle_google_drive_sync(local_excel_path="./trade_book.xlsx"):
-  """Handles Google Drive synchronization for your trade book.
-
-  1. Downloads the latest trade_book.xlsx from Drive at the start.
-  2. Returns an upload function to push changes back up at the end.
-  """
+  """Handles Google Drive synchronization directly using a hardcoded DRIVE_FILE_ID."""
   service = _get_drive_service()
   file_name = os.path.basename(local_excel_path)
-  file_id = None
+  file_id = os.getenv("DRIVE_FILE_ID")
+
+  if not file_id:
+    raise ValueError("DRIVE_FILE_ID is missing in your .env file or environment variables.")
 
   # --- STEP A: DOWNLOAD FROM DRIVE ---
   try:
-    results = (
-        service.files()
-        .list(
-            q=f"name='{file_name}' and trashed=false", fields="files(id, name)"
-        )
-        .execute()
-    )
-    items = results.get("files", [])
+    request = service.files().get_media(fileId=file_id)
+    fh = io.BytesIO()
+    downloader = MediaIoBaseDownload(fh, request)
+    done = False
+    while not done:
+      _, done = downloader.next_chunk()
 
-    if items:
-      file_id = items[0]["id"]
-      request = service.files().get_media(fileId=file_id)
-      fh = io.BytesIO()
-      downloader = MediaIoBaseDownload(fh, request)
-      done = False
-      while not done:
-        _, done = downloader.next_chunk()
-
-      fh.seek(0)
-      with open(local_excel_path, "wb") as f:
-        f.write(fh.read())
-      print(f"Successfully downloaded latest '{file_name}' from Google Drive.")
-    else:
-      print(
-          f"'{file_name}' not found on Google Drive. A new local file will be"
-          " created and uploaded."
-      )
+    fh.seek(0)
+    with open(local_excel_path, "wb") as f:
+      f.write(fh.read())
+    print(f"Successfully downloaded latest '{file_name}' from Google Drive using File ID.")
   except Exception as e:
-    print(f"Drive download skipped or failed: {e}")
+    print(f"Drive download failed: {e}")
+    raise
 
   # --- STEP B: UPLOAD CALLBACK ---
   def upload_back_to_drive():
@@ -517,14 +484,8 @@ def handle_google_drive_sync(local_excel_path="./trade_book.xlsx"):
               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
           ),
       )
-      if file_id:
-        service.files().update(fileId=file_id, media_body=media).execute()
-        print(f"Successfully updated '{file_name}' on Google Drive.")
-      else:
-        service.files().create(
-            body={"name": file_name}, media_body=media, fields="id"
-        ).execute()
-        print(f"Successfully uploaded new '{file_name}' to Google Drive.")
+      service.files().update(fileId=file_id, media_body=media).execute()
+      print(f"Successfully updated '{file_name}' on Google Drive.")
     except Exception as e:
       print(f"Drive upload failed: {e}")
 
@@ -589,6 +550,9 @@ def main():
           d, m, y = match.groups()
           target_date = datetime(int(y), int(m), int(d)).date()
           process_date(target_date, mail)
+
+      print("Full historical processing complete. Uploading to Google Drive...")
+      upload_callback()  # <--- ADDED: Pushes all historical updates to Drive
       return
 
     if manual_date:
@@ -627,15 +591,13 @@ def main():
 
     # 3. Push the updated trade book back up to Google Drive
     upload_callback()
-    
-    # REMOVE LOCAL FILE SO IT ONLY LIVES IN GDRIVER
-    if os.path.exists(EXCEL_PATH):
-        os.remove(EXCEL_PATH)
 
   finally:
     mail.logout()
     cleanup_downloads()
-
-
+    # REMOVE LOCAL FILE SO IT ONLY LIVES IN GDRIVER
+    if os.path.exists(EXCEL_PATH):
+        os.remove(EXCEL_PATH)
+    
 if __name__ == "__main__":
   main()

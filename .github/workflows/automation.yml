@@ -2,13 +2,16 @@ name: Run Contract Note Automation Daily
 
 on:
   schedule:
-    # Runs every day at 08:30 AM UTC
-    - cron: '30 8 * * *'
+    # Runs every day at 03:00 AM UTC -> 8:30 AM IST 
+    - cron: '0 3 * * *'
   workflow_dispatch: # Allows manual testing from the Actions tab
 
 jobs:
   run-script:
     runs-on: ubuntu-latest
+
+    permissions:
+        contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -28,10 +31,11 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      - name: Inject Google Drive Credentials from Secrets
+      - name: Inject Google Drive Service Account Secret
         run: |
-          echo '${{ secrets.GDRIVE_TOKEN_JSON }}' > token.json
-          echo '${{ secrets.GDRIVE_CLIENT_SECRET }}' > client_secret_google_drive_api.json
+          cat << 'EOF' >> $GITHUB_ENV
+          GDRIVE_SERVICE_ACCOUNT_JSON=${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}
+          EOF
 
       - name: Create .env file from GitHub Secrets
         run: |
@@ -41,6 +45,7 @@ jobs:
           echo "DOWNLOAD_DIR=${{ secrets.DOWNLOAD_DIR }}" >> .env
           echo "EXCEL_PATH=${{ secrets.EXCEL_PATH }}" >> .env
           echo "PDF_PASSWORD=${{ secrets.PDF_PASSWORD }}" >> .env
+          echo "DRIVE_FILE_ID=${{ secrets.DRIVE_FILE_ID }}" >> .env
 
       - name: Run script
         run: python contract_note_automation.py
