@@ -45,13 +45,13 @@ jobs:
           python -c "
           import os
           
-          # Only write clean, single-line config values to .env
+          # 1. Write clean config values to .env (excluding multiline JSON)
           env_vars = {
               'EMAIL_USER': os.environ.get('EMAIL_USER'),
               'EMAIL_PASS': os.environ.get('EMAIL_PASS'),
               'IMAP_SERVER': os.environ.get('IMAP_SERVER'),
-              'DOWNLOAD_DIR': os.environ.get('DOWNLOAD_DIR'),
-              'EXCEL_PATH': os.environ.get('EXCEL_PATH'),
+              'DOWNLOAD_DIR': os.environ.get('DOWNLOAD_DIR') or 'downloads',
+              'EXCEL_PATH': os.environ.get('EXCEL_PATH') or 'trade_book.xlsx',
               'PDF_PASSWORD': os.environ.get('PDF_PASSWORD'),
               'DRIVE_FILE_ID': os.environ.get('DRIVE_FILE_ID')
           }
@@ -61,6 +61,22 @@ jobs:
                   if v:
                       f.write(f'{k}={v}\n')
           "
+          
+          # 2. Safely export GDRIVE_SERVICE_ACCOUNT_JSON and other vars to GITHUB_ENV
+          echo "EMAIL_USER=${{ secrets.EMAIL_USER }}" >> $GITHUB_ENV
+          echo "EMAIL_PASS=${{ secrets.EMAIL_PASS }}" >> $GITHUB_ENV
+          echo "IMAP_SERVER=${{ secrets.IMAP_SERVER }}" >> $GITHUB_ENV
+          echo "DOWNLOAD_DIR=downloads" >> $GITHUB_ENV
+          echo "EXCEL_PATH=trade_book.xlsx" >> $GITHUB_ENV
+          echo "PDF_PASSWORD=${{ secrets.PDF_PASSWORD }}" >> $GITHUB_ENV
+          echo "DRIVE_FILE_ID=${{ secrets.DRIVE_FILE_ID }}" >> $GITHUB_ENV
+          
+          # Use GitHub's native multiline delimiter for the JSON key
+          {
+            echo 'GDRIVE_SERVICE_ACCOUNT_JSON<<_EOF_'
+            echo '${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}'
+            echo '_EOF_'
+          } >> $GITHUB_ENV
 
       - name: Run script
         run: python contract_note_automation.py
