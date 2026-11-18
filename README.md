@@ -206,7 +206,8 @@ cd <to the project path>
 python -m venv .venv
 .\.venv\Scripts\Activate
 pip install -r requirements.txt (if not installed)
-python3 Tests/validate_pkg.py
+python Tests/validate_pkg.py
+python contract_note_automation.py
 
 
 # important notes while changing .env file and .gitignore
