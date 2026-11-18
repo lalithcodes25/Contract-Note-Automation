@@ -36,14 +36,16 @@ jobs:
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
           IMAP_SERVER: ${{ secrets.IMAP_SERVER }}
-          DOWNLOAD_DIR: ${{ secrets.DOWNLOAD_DIR }}
-          EXCEL_PATH: ${{ secrets.EXCEL_PATH }}
+          DOWNLOAD_DIR: downloads
+          EXCEL_PATH: trade_book.xlsx
           PDF_PASSWORD: ${{ secrets.PDF_PASSWORD }}
           DRIVE_FILE_ID: ${{ secrets.DRIVE_FILE_ID }}
           GDRIVE_SERVICE_ACCOUNT_JSON: ${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}
         run: |
           python -c "
           import os
+          
+          # Only write clean, single-line config values to .env
           env_vars = {
               'EMAIL_USER': os.environ.get('EMAIL_USER'),
               'EMAIL_PASS': os.environ.get('EMAIL_PASS'),
@@ -51,25 +53,13 @@ jobs:
               'DOWNLOAD_DIR': os.environ.get('DOWNLOAD_DIR'),
               'EXCEL_PATH': os.environ.get('EXCEL_PATH'),
               'PDF_PASSWORD': os.environ.get('PDF_PASSWORD'),
-              'DRIVE_FILE_ID': os.environ.get('DRIVE_FILE_ID'),
-              'GDRIVE_SERVICE_ACCOUNT_JSON': os.environ.get('GDRIVE_SERVICE_ACCOUNT_JSON')
+              'DRIVE_FILE_ID': os.environ.get('DRIVE_FILE_ID')
           }
           
-          # Write to .env file for local/dotenv loading
           with open('.env', 'w') as f:
               for k, v in env_vars.items():
                   if v:
                       f.write(f'{k}={v}\n')
-          
-          # Also write cleanly to GITHUB_ENV so subsequent steps inherit them
-          with open(os.environ['GITHUB_ENV'], 'a') as f:
-              for k, v in env_vars.items():
-                  if v:
-                      # Handle multiline JSON securely via EOF delimiter
-                      if '\n' in v:
-                          f.write(f'{k}<<_EOF_\n{v}\n_EOF_\n')
-                      else:
-                          f.write(f'{k}={v}\n')
           "
 
       - name: Run script
