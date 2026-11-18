@@ -8,10 +8,18 @@ import re
 import sys
 import camelot
 import openpyxl
+import io
 from openpyxl.worksheet.table import Table, TableColumn, TableStyleInfo
 import pandas as pd
 from pypdf import PdfReader, PdfWriter
 from dotenv import load_dotenv
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
+
+SCOPES = ["https://www.googleapis.com/auth/drive"]
 
 # Load variables from .env file
 load_dotenv()
@@ -77,7 +85,18 @@ def update_status(target_date, status="Success"):
   with open(STATUS_FILE, "w") as f:
     json.dump(sorted_data, f, indent=4)
 
-
+def is_date_already_processed(target_date):
+  """Checks run_status.json to see if target_date already succeeded."""
+  if not os.path.exists(STATUS_FILE):
+    return False
+  try:
+    with open(STATUS_FILE, "r") as f:
+      data = json.load(f)
+    date_str = f"{target_date.strftime('%Y-%m-%d')} ({target_date.strftime('%A')})"
+    return data.get(date_str) == "Success"
+  except (IOError, json.JSONDecodeError):
+    return False
+  
 def get_client_suffix(download_dir):
   if not os.path.exists(download_dir):
     return "XNY058"
@@ -423,7 +442,100 @@ def download_all_contract_notes(mail):
                   f.write(payload_data)
                 print(f"Downloaded: {filename}")
 
+def _get_drive_service():
+  """Internal helper to authenticate and build the Drive API service client."""
+  creds = None
+  if os.path.exists("token.json"):
+    creds = Credentials.from_authorized_user_file("token.json", SCOPES)
+
+  if not creds or not creds.valid:
+    if creds and creds.expired and creds.refresh_token:
+      creds.refresh(Request())
+    else:
+      if not os.path.exists("client_secret_google_drive_api.json"):
+        raise FileNotFoundError(
+            "client_secret_google_drive_api.json not found in directory. Please place it in your"
+            " project folder."
+        )
+      flow = InstalledAppFlow.from_client_secrets_file("client_secret_google_drive_api.json", SCOPES)
+      creds = flow.run_local_server(port=0)
+
+    with open("token.json", "w") as token:
+      token.write(creds.to_json())
+
+  return build("drive", "v3", credentials=creds)
+
+
+def handle_google_drive_sync(local_excel_path="./trade_book.xlsx"):
+  """Handles Google Drive synchronization for your trade book.
+
+  1. Downloads the latest trade_book.xlsx from Drive at the start.
+  2. Returns an upload function to push changes back up at the end.
+  """
+  service = _get_drive_service()
+  file_name = os.path.basename(local_excel_path)
+  file_id = None
+
+  # --- STEP A: DOWNLOAD FROM DRIVE ---
+  try:
+    results = (
+        service.files()
+        .list(
+            q=f"name='{file_name}' and trashed=false", fields="files(id, name)"
+        )
+        .execute()
+    )
+    items = results.get("files", [])
+
+    if items:
+      file_id = items[0]["id"]
+      request = service.files().get_media(fileId=file_id)
+      fh = io.BytesIO()
+      downloader = MediaIoBaseDownload(fh, request)
+      done = False
+      while not done:
+        _, done = downloader.next_chunk()
+
+      fh.seek(0)
+      with open(local_excel_path, "wb") as f:
+        f.write(fh.read())
+      print(f"Successfully downloaded latest '{file_name}' from Google Drive.")
+    else:
+      print(
+          f"'{file_name}' not found on Google Drive. A new local file will be"
+          " created and uploaded."
+      )
+  except Exception as e:
+    print(f"Drive download skipped or failed: {e}")
+
+  # --- STEP B: UPLOAD CALLBACK ---
+  def upload_back_to_drive():
+    try:
+      media = MediaFileUpload(
+          local_excel_path,
+          mimetype=(
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          ),
+      )
+      if file_id:
+        service.files().update(fileId=file_id, media_body=media).execute()
+        print(f"Successfully updated '{file_name}' on Google Drive.")
+      else:
+        service.files().create(
+            body={"name": file_name}, media_body=media, fields="id"
+        ).execute()
+        print(f"Successfully uploaded new '{file_name}' to Google Drive.")
+    except Exception as e:
+      print(f"Drive upload failed: {e}")
+
+  return upload_back_to_drive
+
 def main():
+
+  # 1. Pull latest trade book from Drive before processing emails
+  upload_callback = handle_google_drive_sync(EXCEL_PATH)
+
+  print("Starting contract note processing...")
   today = datetime.now().date()
   target_end_date = today - timedelta(days=1)
 
@@ -484,6 +596,15 @@ def main():
           f"==> Manual override active. Processing single date:"
           f" {manual_date} ({manual_date.strftime('%A')})"
       )
+
+      # Check run_status.json before doing any downloads or parsing
+      if is_date_already_processed(manual_date):
+        print(
+            f"==> Date {manual_date} is already marked as 'Success' in"
+            f" {STATUS_FILE}. Skipping."
+        )
+        return
+      
       process_date(manual_date, mail)
     else:
       last_run = get_last_run_date()
@@ -501,6 +622,15 @@ def main():
         while current_date <= target_end_date:
           process_date(current_date, mail)
           current_date += timedelta(days=1)
+
+    print("Processing complete.")
+
+    # 3. Push the updated trade book back up to Google Drive
+    upload_callback()
+    
+    # REMOVE LOCAL FILE SO IT ONLY LIVES IN GDRIVER
+    if os.path.exists(EXCEL_PATH):
+        os.remove(EXCEL_PATH)
 
   finally:
     mail.logout()
