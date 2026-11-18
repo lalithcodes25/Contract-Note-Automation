@@ -201,7 +201,7 @@ launchctl load ~/Library/LaunchAgents/com.lchatala.contractautomation.plist
 
 * **Automated Cleanup:** Safely purges downloaded source PDFs and temporary unlocked files upon run completion.
 
-# Initial setup
+# Initial setup (Always do git pull if you want to make changes in local as status.json is everyday getting updated)
 cd <to the project path>
 python -m venv .venv
 .\.venv\Scripts\Activate
