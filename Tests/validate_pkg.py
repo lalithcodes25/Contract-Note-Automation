@@ -1,6 +1,14 @@
 import importlib.metadata
 import os
 import sys
+import imaplib
+from dotenv import load_dotenv
+
+load_dotenv()
+
+email_user = os.getenv("EMAIL_USER")
+email_pass = os.getenv("EMAIL_PASS")
+imap_server = os.getenv("IMAP_SERVER") or "imap.gmail.com"
 
 print(f"Using Python executable: {sys.executable}")
 
@@ -77,3 +85,37 @@ if failed:
 else:
   print("\n All packages in requirements.txt successfully validated and ready!")
 
+
+if not email_user or not email_pass:
+  raise SystemExit(
+      "Missing EMAIL_USER or EMAIL_PASS in environment / .env file."
+  )
+
+# Helpful sanity check (does not print the password)
+print(f"Testing IMAP login for: {email_user} on {imap_server}")
+print(f"Password length: {len(email_pass)} (no spaces: {email_pass.strip() == email_pass})")
+
+mail = None
+try:
+  mail = imaplib.IMAP4_SSL(imap_server)
+  status, response = mail.login(email_user.strip(), email_pass.strip())
+  print(f"Login status: {status} | Response: {response}")
+
+  box_status, box_data = mail.select("inbox", readonly=True)
+  msg_count = box_data[0].decode() if box_data and box_data[0] else "unknown"
+  print(f"Inbox selected ({box_status}). Total messages in INBOX: {msg_count}")
+
+  # Optional: verify Gmail search works for contract notes
+  search_status, search_data = mail.search(None, 'X-GM-RAW "contract-notes"')
+  ids = search_data[0].split() if search_data and search_data[0] else []
+  print(f"Matching contract-note emails found: {len(ids)}")
+
+except imaplib.IMAP4.error as e:
+  print(f"IMAP authentication/protocol error: {e}")
+  raise
+finally:
+  if mail is not None:
+    try:
+      mail.logout()
+    except Exception:
+      pass
