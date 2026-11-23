@@ -128,5 +128,8 @@
     "2026-11-16 (Monday)": "Success",
     "2026-11-17 (Tuesday)": "Success",
     "2026-11-18 (Wednesday)": "Success",
-    "2026-11-19 (Thursday)": "Success"
+    "2026-11-19 (Thursday)": "Success",
+    "2026-11-20 (Friday)": "Success",
+    "2026-11-21 (Saturday)": "Not Found",
+    "2026-11-22 (Sunday)": "Not Found"
 }
